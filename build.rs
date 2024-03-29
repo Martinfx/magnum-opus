@@ -3,17 +3,26 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(all(target_os = "linux", feature = "linux-pkg-config"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "linux-pkg-config"),
+    all(target_os = "freebsd")
+))]
 fn link_pkg_config(name: &str) -> Vec<PathBuf> {
-    let lib = pkg_config::probe_library(name)
-        .expect(format!(
-            "unable to find '{name}' development headers with pkg-config (feature linux-pkg-config is enabled).
-            try installing '{name}-dev' from your system package manager.").as_str());
+    #[cfg(all(target_os = "linux", feature = "linux-pkg-config"))]
+    let expect_msg = format!("unable to find '{name}' development headers with pkg-config (feature linux-pkg-config is enabled).
+            try installing '{name}-dev' from your system package manager.");
+    #[cfg(all(target_os = "freebsd"))]
+    let expect_msg = format!("unable to find '{name}' development headers with pkg-config (feature pkg-config is enabled).\
+    make sure you have installed 'pkgconf' and '{name}' under your corresponding freebsd environment.");
+    let lib = pkg_config::probe_library(name).expect(expect_msg.as_str());
 
     lib.include_paths
 }
 
-#[cfg(not(all(target_os = "linux", feature = "linux-pkg-config")))]
+#[cfg(not(any(
+    all(target_os = "linux", feature = "linux-pkg-config"),
+    all(target_os = "freebsd")
+)))]
 fn link_vcpkg(mut path: PathBuf, name: &str) -> PathBuf {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let mut target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
@@ -56,7 +65,10 @@ fn link_vcpkg(mut path: PathBuf, name: &str) -> PathBuf {
     include
 }
 
-#[cfg(not(all(target_os = "linux", feature = "linux-pkg-config")))]
+#[cfg(not(any(
+    all(target_os = "linux", feature = "linux-pkg-config"),
+    all(target_os = "freebsd")
+)))]
 fn link_homebrew_m1(name: &str) -> PathBuf {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
@@ -107,12 +119,18 @@ fn link_homebrew_m1(name: &str) -> PathBuf {
     include
 }
 
-#[cfg(all(target_os = "linux", feature = "linux-pkg-config"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "linux-pkg-config"),
+    all(target_os = "freebsd")
+))]
 fn find_package(name: &str) -> Vec<PathBuf> {
     return link_pkg_config(name);
 }
 
-#[cfg(not(all(target_os = "linux", feature = "linux-pkg-config")))]
+#[cfg(not(any(
+    all(target_os = "linux", feature = "linux-pkg-config"),
+    all(target_os = "freebsd")
+)))]
 fn find_package(name: &str) -> Vec<PathBuf> {
     if let Ok(vcpkg_root) = std::env::var("VCPKG_ROOT") {
         vec![link_vcpkg(vcpkg_root.into(), name)]
@@ -148,6 +166,7 @@ fn generate_bindings(ffi_header: &Path, include_paths: &[PathBuf], ffi_rs: &Path
 
 fn gen_opus() {
     let includes = find_package("opus");
+    
     let src_dir = env::var_os("CARGO_MANIFEST_DIR").unwrap();
     let src_dir = Path::new(&src_dir);
     let out_dir = env::var_os("OUT_DIR").unwrap();
